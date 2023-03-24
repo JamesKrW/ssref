@@ -1,0 +1,1 @@
+# work managers like trainer and tester
