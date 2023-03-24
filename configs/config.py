@@ -66,13 +66,13 @@ class Config:
 
         self.optimizer=Config()
         self.optimizer.lr=args.lr
-        self.optimizer.weight_decay=0.005
+        self.optimizer.weight_decay=0.
         self.optimizer.betas=(0.9, 0.99)
         self.optimizer.optimizer_cfg={'lr':self.optimizer.lr,'weight_decay':self.optimizer.weight_decay,'betas':self.optimizer.betas}
 
         self.scheduler=Config()
         self.scheduler.name="linear"
-        self.scheduler.num_warmup_steps=20
+        self.scheduler.num_warmup_steps=100
         self.scheduler.num_training_steps=None #caculated in training
 
         self.tokenizer=Config()

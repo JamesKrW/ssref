@@ -70,6 +70,9 @@ class pair_sbert(nn.Module):
         self.query_encoder = SentenceEncoder(cfg.model_arch.name,checkpoint_enable=False)
         for param in self.key_encoder.parameters():
                 param.requires_grad = False
+        for name,param in self.key_encoder.named_parameters():
+                if param.requires_grad == True:
+                     print(name)
 
 
     def forward(self, input,mode=None):

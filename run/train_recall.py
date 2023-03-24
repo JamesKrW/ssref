@@ -59,7 +59,7 @@ def test_model(cfg,model,test_loader):
 def test_recall(cfg,model,batch_size,tokenizer,query,key_id2embed,id2paper,device,retrieve_count=1000,logger=None):
     query_id2embed={} # embedding for query
     i=0
-    pbar = tqdm(range(0,len(query),batch_size), postfix=f"generaten query embedding")
+    pbar = tqdm(range(0,len(query),batch_size), postfix=f"generating query embedding")
     model.net.eval()
     with torch.no_grad():
         for i in pbar:
