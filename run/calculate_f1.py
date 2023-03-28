@@ -19,13 +19,13 @@ from tqdm import tqdm
 
 
 def setcfg(cfg):
-    cfg.mode='eval_train' #'key' assert mode in ['eval_dev','eval_test','eval_train']
-    save_dir="/share/data/mei-work/kangrui/github/ssref/result/pretrained_sbert"
-    cfg.retrieve_count=200
+    cfg.mode='eval_dev' #'key' assert mode in ['eval_dev','eval_test','eval_train']
+    save_dir="/share/data/mei-work/kangrui/github/ssref/result/pretrained_pair_sbert"
+    cfg.retrieve_count=1000
     
     # basically no need to change
     cfg.dataset.test=Config()
-    cfg.dataset.test.full_data="/share/data/mei-work/kangrui/github/ref-sum/refsum/data/refsum-data/arxiv-aiml/full_data_no_embed.pkl"
+    cfg.dataset.test.full_data="/share/data/mei-work/kangrui/github/ssref/data/refsum-data/arxiv-aiml/full_data_no_embed.pkl"
     cfg.src_dir = osp.join(save_dir,"test_result")
     cfg.work_dir = osp.join(save_dir,"f1_result")
     #"/share/data/mei-work/kangrui/github/ref-sum/refsum/data/refsum-data/arxiv-aiml/full_data_txt.pkl"
@@ -96,7 +96,7 @@ def main():
 
     all_pred=np.array(all_pred)
     all_gold=np.array(all_gold)
-    for i in [64,128]:
+    for i in [64,128,256,512,1000]:
         
         cfg.logger.info(f"num sampled:{i}")
         metric = get_precision_recall_f1(all_pred[:,:i], all_gold)

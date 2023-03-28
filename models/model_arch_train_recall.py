@@ -9,39 +9,7 @@ import torch.nn.functional as F
 
 
 
-class BertSiameseClassifier(nn.Module):
-    def __init__(self, cfg):
-        super().__init__()
-        plm_config = AutoConfig.from_pretrained(cfg.model_arch.name)
-       
-        self.bert = AutoModel.from_pretrained(cfg.model_arch.name)
 
-            
-        self.bert.gradient_checkpointing_enable()
-        self.attention_fc = nn.Linear(plm_config.hidden_size, 1, bias=False)
-        self.loss = nn.CrossEntropyLoss()
-        
-    
-    def forward(self, input,mode=None):
-
-        LARGE_NEG = -1e9
-
-        if mode!=None: # eval mode
-            ss=input['ids']
-            sms=input['mask']
-            
-
-
-            s_hiddens = self.bert(ss, attention_mask=sms)
-            s_hiddens = s_hiddens[0] 
-            s_hiddens=torch.tanh(s_hiddens)
-
-            s_att_logits = self.attention_fc(s_hiddens).squeeze(-1) # (B, L) 
-            s_att_logits = s_att_logits + (1. - sms)*LARGE_NEG # (B, L)
-            s_att = F.softmax(s_att_logits, dim=-1) # (B, L)
-            s_hiddens = torch.sum(s_hiddens * s_att.unsqueeze(-1), dim=1) # (B, H)
-
-            return s_hiddens
         
 class SentenceEncoder(nn.Module):
     #self supervised learning sbert
@@ -92,11 +60,11 @@ class pair_sbert(nn.Module):
 
             ts=input['key']['ids']
             tms=input['key']['mask']
-            ttks=input['query']['token_type_ids']
+            ttks=input['key']['token_type_ids']
 
             ts=ts.view(-1,ts.shape[2])
             tms=tms.view(-1,tms.shape[2])
-            ttks=ttks.view(-1,tms.shape[2])
+            ttks=ttks.view(-1,ttks.shape[2])
             query=self.query_encoder(ss,sms,stks)
             key=self.key_encoder(ts,tms,ttks)
             # n=ss.shape[0]

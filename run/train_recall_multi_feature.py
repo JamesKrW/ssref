@@ -13,12 +13,12 @@ import torch.multiprocessing as mp
 
 
 from utils.utils import *
-from configs.config import Config
-from models.model_arch_train_recall import pair_sbert
+from configs.config_train_recall_multi_feature import Config
+from models.model_arch_train_recall_multi_feature import pair_sbert as mymodel
 from models.ddp_model import Model
 from modules.dataloader import create_dataloader
-from modules.dataset import SSDataset
-from modules.loss import SSloss
+from modules.dataset_multi_feature_train_recall import ArxivDataset
+from modules.loss import SSloss_multifeature
 from transformers import get_scheduler
 from torch.optim import AdamW
 import itertools
@@ -108,22 +108,22 @@ def train_model(cfg, model, train_loader,test_loader=None):
             if is_logging_process():
                 cfg.logger.info("Train Loss %.08f at (epoch: %d / step: %d)"% (cur_loss, model.epoch + 1, model.step))
             train_loss=0
-        dist.barrier()
-        if model.step % cfg.log_interval_recall == 0 or model.step==1:
-            if is_logging_process():
-                print("begin eval recall")
-                if cfg.id2paper is None:
-                    cfg.id2paper=loadpickle(cfg.sstraining.id2paper)
-                    cfg.key_id2embed=loadpickle(cfg.sstraining.key_id2embed)
-                    cfg.query=loadpickle(cfg.sstraining.query)
-                    print("load full data finished")
-                dist.barrier()
-                test_recall(cfg=cfg,model=model,batch_size=cfg.dataloader.test_batch_size,tokenizer=cfg.tokenizer.instance,
-                            query=cfg.query,key_id2embed=cfg.key_id2embed,id2paper=cfg.id2paper,device=cfg.device,retrieve_count=1000,logger=cfg.logger)
+        # dist.barrier()
+        # if model.step % cfg.log_interval_recall == 0 or model.step==1:
+        #     if is_logging_process():
+        #         print("begin eval recall")
+        #         if cfg.id2paper is None:
+        #             cfg.id2paper=loadpickle(cfg.sstraining.id2paper)
+        #             cfg.key_id2embed=loadpickle(cfg.sstraining.key_id2embed)
+        #             cfg.query=loadpickle(cfg.sstraining.query)
+        #             print("load full data finished")
+        #         dist.barrier()
+        #         test_recall(cfg=cfg,model=model,batch_size=cfg.dataloader.test_batch_size,tokenizer=cfg.tokenizer.instance,
+        #                     query=cfg.query,key_id2embed=cfg.key_id2embed,id2paper=cfg.id2paper,device=cfg.device,retrieve_count=1000,logger=cfg.logger)
 
-            else:
-                dist.barrier()
-        if model.step % cfg.log_interval_test == 0 or model.step==1:
+        #     else:
+        #         dist.barrier()
+        if model.step % cfg.log_interval_test == 0:# or model.step==1:
             test_model(cfg,model,test_loader)
 
 
@@ -180,8 +180,8 @@ def train_loop(rank, cfg):
     if is_logging_process():
         cfg.logger.info("Making train dataloader...")
        
-    train_dataset=SSDataset(cfg,"train")
-    test_dataset=SSDataset(cfg,"dev")
+    train_dataset=ArxivDataset(cfg,"train")
+    test_dataset=ArxivDataset(cfg,"dev")
 
     train_loader = create_dataloader(cfg, "train", rank,train_dataset)
     if is_logging_process():
@@ -193,8 +193,8 @@ def train_loop(rank, cfg):
 
     
    
-    net_arch = pair_sbert(cfg)
-    loss_f = SSloss(cfg)
+    net_arch = mymodel(cfg)
+    loss_f = SSloss_multifeature(cfg)
     optimizer=AdamW
     scheduler=get_scheduler
     model = Model(cfg, net_arch,loss_f,optimizer,scheduler,rank)

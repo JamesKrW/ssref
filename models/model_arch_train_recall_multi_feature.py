@@ -9,39 +9,7 @@ import torch.nn.functional as F
 
 
 
-class BertSiameseClassifier(nn.Module):
-    def __init__(self, cfg):
-        super().__init__()
-        plm_config = AutoConfig.from_pretrained(cfg.model_arch.name)
-       
-        self.bert = AutoModel.from_pretrained(cfg.model_arch.name)
 
-            
-        self.bert.gradient_checkpointing_enable()
-        self.attention_fc = nn.Linear(plm_config.hidden_size, 1, bias=False)
-        self.loss = nn.CrossEntropyLoss()
-        
-    
-    def forward(self, input,mode=None):
-
-        LARGE_NEG = -1e9
-
-        if mode!=None: # eval mode
-            ss=input['ids']
-            sms=input['mask']
-            
-
-
-            s_hiddens = self.bert(ss, attention_mask=sms)
-            s_hiddens = s_hiddens[0] 
-            s_hiddens=torch.tanh(s_hiddens)
-
-            s_att_logits = self.attention_fc(s_hiddens).squeeze(-1) # (B, L) 
-            s_att_logits = s_att_logits + (1. - sms)*LARGE_NEG # (B, L)
-            s_att = F.softmax(s_att_logits, dim=-1) # (B, L)
-            s_hiddens = torch.sum(s_hiddens * s_att.unsqueeze(-1), dim=1) # (B, H)
-
-            return s_hiddens
         
 class SentenceEncoder(nn.Module):
     #self supervised learning sbert
@@ -62,7 +30,7 @@ class SentenceEncoder(nn.Module):
         sentence_embeddings = F.normalize(sentence_embeddings, p=2, dim=1)
         return sentence_embeddings
     
-class pair_sbert(nn.Module):
+class pair_sbert_freeze_key(nn.Module):
     #self supervised learning sbert
     def __init__(self, cfg):
         super().__init__()
@@ -92,21 +60,79 @@ class pair_sbert(nn.Module):
 
             ts=input['key']['ids']
             tms=input['key']['mask']
-            ttks=input['query']['token_type_ids']
+            ttks=input['key']['token_type_ids']
 
-            ts=ts.view(-1,ts.shape[2])
-            tms=tms.view(-1,tms.shape[2])
-            ttks=ttks.view(-1,tms.shape[2])
             query=self.query_encoder(ss,sms,stks)
             key=self.key_encoder(ts,tms,ttks)
-            # n=ss.shape[0]
-            # s=torch.cat((ss,ts),dim=0)
-            # ms=torch.cat((sms,tms),dim=0)
+            return  {'key':key,'query':query}
+        
+class single_sbert(nn.Module):
+    #self supervised learning sbert
+    def __init__(self, cfg):
+        super().__init__()
+        self.query_encoder = SentenceEncoder(cfg.model_arch.name,checkpoint_enable=False)
+       
 
+    def forward(self, input,mode=None):
 
-            # embedding=self.query_encoder(s,ms)
-    
-            # key=embedding[n:]
-            # query=embedding[:n]
+        
+        if mode!=None:
+            s=input['ids']
+            ms=input['mask']
+            tks=input['token_type_ids']
+            if mode=='query':
+                 return self.query_encoder(s,ms,tks)
+            else:
+                 return self.query_encoder(s,ms,tks)
+        else:
+            ss=input['query']['ids']
+            sms=input['query']['mask']
+            stks=input['query']['token_type_ids']
+            
+            
+
+            ts=input['key']['ids']
+            tms=input['key']['mask']
+            ttks=input['key']['token_type_ids']
+
+            query=self.query_encoder(ss,sms,stks)
+            key=self.query_encoder(ts,tms,ttks)
+
+            return  {'key':key,'query':query}
+        
+class pair_sbert(nn.Module):
+    #self supervised learning sbert
+    def __init__(self, cfg):
+        super().__init__()
+        self.key_encoder = SentenceEncoder(cfg.model_arch.name,checkpoint_enable=False)
+        self.query_encoder = SentenceEncoder(cfg.model_arch.name,checkpoint_enable=False)
+       
+       
+
+    def forward(self, input,mode=None):
+
+        
+        if mode!=None:
+            s=input['ids']
+            ms=input['mask']
+            tks=input['token_type_ids']
+            if mode=='query':
+                 return self.query_encoder(s,ms,tks)
+            else:
+                 return self.key_encoder(s,ms,tks)
+        else:
+            ss=input['query']['ids']
+            sms=input['query']['mask']
+            stks=input['query']['token_type_ids']
+            
+            
+
+            ts=input['key']['ids']
+            tms=input['key']['mask']
+            ttks=input['key']['token_type_ids']
+
+            query=self.query_encoder(ss,sms,stks)
+            key=self.key_encoder(ts,tms,ttks)
+        
 
             return  {'key':key,'query':query}

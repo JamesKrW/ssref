@@ -14,10 +14,10 @@ import torch.multiprocessing as mp
 
 from utils.utils import *
 from configs.config import Config
-from models.model_arch import SentenceEncoder,BertSiameseClassifier
+from models.model_arch import pair_sbert
 from models.ddp_model import Model
 from modules.dataloader import create_dataloader
-from modules.dataset import TestDataset
+from modules.dataset_multi_feature import TestDataset
 import itertools
 from tqdm import tqdm
 
@@ -73,7 +73,7 @@ def test_loop(rank, cfg):
    
     #net_arch = DoubleBERT(cfg)
     #net_arch = SentenceEncoder(cfg)
-    net_arch =BertSiameseClassifier(cfg)
+    net_arch =pair_sbert(cfg)
     #net_arch=BertSiameseClassifier(cfg)
     model = Model(cfg, net_arch,None,None,None,rank)
     if cfg.usefinetuned:
@@ -125,11 +125,11 @@ def test_loop(rank, cfg):
 def setcfg(cfg):
     cfg.mode='eval_dev' #'key' assert mode in ['eval_key','eval_dev','eval_test','eval_train']
 
-    save_dir='/share/data/mei-work/kangrui/github/ssref/result/pretrained_sbert'
+    save_dir='/share/data/mei-work/kangrui/github/ssref/result/pretrained_pair_sbert'
     cfg.model.network_pth_path=osp.join(save_dir,'checkpoints/best.pt')
     cfg.usefinetuned=False
     cfg.dataloader.test_batch_size=1024
-    cfg.num_workers=256
+    cfg.num_workers=8
 
 
     # no need to change
@@ -137,10 +137,10 @@ def setcfg(cfg):
     cfg.mode_dir = osp.join(cfg.work_dir,f"{cfg.mode}")
     cfg.dataset.test=Config()
 
-    cfg.dataset.test.datafolder="/share/data/mei-work/kangrui/github/ref-sum/refsum/data/refsum-data/arxiv-aiml-small"
+    cfg.dataset.test.datafolder="/share/data/mei-work/kangrui/github/ssref/data/refsum-data/arxiv-aiml-small"
     # which contains dev.pkl,test.pkl
 
-    cfg.dataset.test.full_data_path="/share/data/mei-work/kangrui/github/ref-sum/refsum/data/refsum-data/arxiv-aiml/full_data_txt.pkl"
+    cfg.dataset.test.full_data_path="/share/data/mei-work/kangrui/github/ssref/data/refsum-data/arxiv-aiml/full_data_abs_title_author_data.pkl"
     #"/share/data/mei-work/kangrui/github/ref-sum/refsum/data/refsum-data/arxiv-aiml/full_data_txt.pkl"
 
 

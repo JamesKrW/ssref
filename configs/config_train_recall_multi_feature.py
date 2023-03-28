@@ -18,9 +18,9 @@ class Config:
     
     def init(self):
         parser = argparse.ArgumentParser(description='training template')
-        parser.add_argument('--train_batch_size', type=int, default=2, metavar='N',
+        parser.add_argument('--train_batch_size', type=int, default=64, metavar='N',
                             help='input batch size for training (default: 128)')
-        parser.add_argument('--test_batch_size', type=int, default=2, metavar='N',
+        parser.add_argument('--test_batch_size', type=int, default=64, metavar='N',
                             help='input batch size for testing (default: 128)')
         parser.add_argument('--num_epoch', type=int, default=30, metavar='N',
                             help='number of epochs to train (default: 10)')
@@ -46,8 +46,8 @@ class Config:
         self.chkpt_dir=osp.join(self.work_dir,"checkpoints")
         self.chkpt_interval=3 #epoch
         # training step
-        self.log_interval_train=100 
-        self.log_interval_test=200
+        self.log_interval_train=1000 
+        self.log_interval_test=6000
         self.log_interval_recall=500
 
 
@@ -99,7 +99,7 @@ class Config:
         self.dist=Config()
         self.dist.gpus=0
         self.dist.master_addr='127.0.0.1'
-        self.dist.master_port="8888"
+        self.dist.master_port="1234"
         self.dist.backend='nccl'
         self.dist.init_method='env://'
         self.dist.world_size=None

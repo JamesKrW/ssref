@@ -21,7 +21,7 @@ from tqdm import tqdm
 def setcfg(cfg):
     cfg.mode='eval_test' #'key' assert mode in ['eval_dev','eval_test']
 
-    save_dir='/share/data/mei-work/kangrui/github/ssref/result/pretrained_sbert_mo'
+    save_dir='/share/data/mei-work/kangrui/github/ssref/result/pretrained_pair_sbert'
     cfg.src_dir = osp.join(save_dir,"test_result")
     cfg.work_dir = osp.join(save_dir,"f1_result")
     cfg.work_dir = osp.join(save_dir,"f1_result")
