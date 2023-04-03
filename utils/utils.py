@@ -8,6 +8,9 @@ import json
 import torch.distributed as dist
 import pickle
 
+
+
+    
 def mkdir(path):
     if not osp.exists(path):
         os.makedirs(path)
@@ -26,10 +29,6 @@ def set_seed(seed=0):
 def savenp(dir,name,a):
     mkdir(dir)
     np.save(osp.join(dir,name),a)
-
-def is_logging_process():
-    # print(dist.get_rank())
-    return (not dist.is_initialized()) or dist.get_rank() == 0
 
 def loadLogger(path:str,name='log'):
     logger = logging.getLogger()

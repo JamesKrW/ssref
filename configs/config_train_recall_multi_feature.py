@@ -18,9 +18,9 @@ class Config:
     
     def init(self):
         parser = argparse.ArgumentParser(description='training template')
-        parser.add_argument('--train_batch_size', type=int, default=64, metavar='N',
+        parser.add_argument('--train_batch_size', type=int, default=128, metavar='N',
                             help='input batch size for training (default: 128)')
-        parser.add_argument('--test_batch_size', type=int, default=64, metavar='N',
+        parser.add_argument('--test_batch_size', type=int, default=128, metavar='N',
                             help='input batch size for testing (default: 128)')
         parser.add_argument('--num_epoch', type=int, default=30, metavar='N',
                             help='number of epochs to train (default: 10)')
@@ -34,6 +34,8 @@ class Config:
                             help='model name for training')
         parser.add_argument('--multi_gpu', type=int, default=1, metavar='N',
                             help='use multi gpu to train')
+        parser.add_argument('--log_interval_test', type=int, default=1000, metavar='N',
+                            help='test interval vs step')
         args = parser.parse_args()
 
         self.num_epoch=args.num_epoch
@@ -46,8 +48,8 @@ class Config:
         self.chkpt_dir=osp.join(self.work_dir,"checkpoints")
         self.chkpt_interval=3 #epoch
         # training step
-        self.log_interval_train=1000 
-        self.log_interval_test=6000
+        self.log_interval_train=500
+        self.log_interval_test=args.log_interval_test
         self.log_interval_recall=500
 
 
@@ -58,15 +60,15 @@ class Config:
         self.dataloader=Config()
         self.dataloader.train_batch_size=args.train_batch_size
         self.dataloader.test_batch_size=args.test_batch_size
-        self.dataloader.train_num_workers=8
-        self.dataloader.test_num_workers=8
+        self.dataloader.train_num_workers=1
+        self.dataloader.test_num_workers=1
         self.dataloader.divide_dataset_per_gpu=True
         self.dataloader.use_background_generator = True
 
 
         self.optimizer=Config()
         self.optimizer.lr=args.lr
-        self.optimizer.weight_decay=0.
+        self.optimizer.weight_decay=0.01
         self.optimizer.betas=(0.9, 0.99)
         self.optimizer.optimizer_cfg={'lr':self.optimizer.lr,'weight_decay':self.optimizer.weight_decay,'betas':self.optimizer.betas}
 
@@ -80,9 +82,9 @@ class Config:
         self.tokenizer.max_length=512
 
         self.model=Config()
-        self.model.resume_state_path=None  # "/home/cc/github/ref-sum/work/2023-02-28T05-04-37/checkpoints/model_2.state"
-        self.model.network_pth_path=None   # "/home/cc/github/ref-sum/work/2023-02-28T05-04-37/checkpoints/model_2.pth"
-        self.model.strict_load=False
+        self.model.resume_state_path=None
+        self.model.network_pth_path=None
+        self.model.strict_load=True
 
 
         self.model_arch=Config()

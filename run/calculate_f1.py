@@ -19,8 +19,8 @@ from tqdm import tqdm
 
 
 def setcfg(cfg):
-    cfg.mode='eval_dev' #'key' assert mode in ['eval_dev','eval_test','eval_train']
-    save_dir="/share/data/mei-work/kangrui/github/ssref/result/pretrained_pair_sbert"
+    cfg.mode='eval_test' #'key' assert mode in ['eval_dev','eval_test','eval_train']
+    save_dir="/share/data/mei-work/kangrui/github/ssref/result/sentence-transformers_all-MiniLM-L6-v2/2023-04-03T04-11-59"
     cfg.retrieve_count=1000
     
     # basically no need to change
@@ -96,7 +96,7 @@ def main():
 
     all_pred=np.array(all_pred)
     all_gold=np.array(all_gold)
-    for i in [64,128,256,512,1000]:
+    for i in [2,4,8,16,32,64,128,256,512,1000]:
         
         cfg.logger.info(f"num sampled:{i}")
         metric = get_precision_recall_f1(all_pred[:,:i], all_gold)

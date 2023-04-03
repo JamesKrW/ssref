@@ -17,7 +17,7 @@ class DataLoader_(DataLoader):
     
 
 
-def create_dataloader(cfg, mode, rank,dataset):
+def create_dataloader(cfg, mode, rank,dataset,my_collate_fn=None):
     assert mode in ['train','dev','eval_key','eval_dev','eval_test','eval_train']
     if cfg.dataloader.use_background_generator:
         data_loader = DataLoader_ #set to False when using ddp
@@ -30,6 +30,17 @@ def create_dataloader(cfg, mode, rank,dataset):
         sampler = DistributedSampler(dataset, cfg.dist.gpus, rank)
         train_use_shuffle = False
     if mode=='train':
+        if my_collate_fn is not None:
+            return data_loader(
+            dataset=dataset,
+            batch_size=cfg.dataloader.train_batch_size,
+            shuffle=train_use_shuffle,
+            sampler=sampler,
+            num_workers=cfg.dataloader.train_num_workers,
+            pin_memory=True,
+            drop_last=True,
+            collate_fn=my_collate_fn
+        ),sampler
         return data_loader(
             dataset=dataset,
             batch_size=cfg.dataloader.train_batch_size,
@@ -38,8 +49,20 @@ def create_dataloader(cfg, mode, rank,dataset):
             num_workers=cfg.dataloader.train_num_workers,
             pin_memory=True,
             drop_last=True,
-        )
+        ),sampler
     elif mode=='dev':
+        if my_collate_fn is not None:
+            return   data_loader(
+            dataset=dataset,
+            batch_size=cfg.dataloader.test_batch_size,
+            shuffle=False,
+            sampler=sampler,
+            num_workers=cfg.dataloader.test_num_workers,
+            pin_memory=True,
+            drop_last=True,
+            collate_fn=my_collate_fn
+        ),sampler
+            
         return data_loader(
             dataset=dataset,
             batch_size=cfg.dataloader.test_batch_size,
@@ -48,8 +71,19 @@ def create_dataloader(cfg, mode, rank,dataset):
             num_workers=cfg.dataloader.test_num_workers,
             pin_memory=True,
             drop_last=True,
-        )
+        ),sampler
     elif mode in ['eval_key','eval_test',"eval_dev",'eval_train']:
+        if my_collate_fn is not None:
+            return data_loader(
+            dataset=dataset,
+            batch_size=cfg.dataloader.test_batch_size,
+            shuffle=False,
+            sampler=sampler,
+            num_workers=cfg.dataloader.test_num_workers,
+            pin_memory=True,
+            drop_last=False,
+            collate_fn=my_collate_fn,
+        ),sampler
         return data_loader(
             dataset=dataset,
             batch_size=cfg.dataloader.test_batch_size,
@@ -58,9 +92,9 @@ def create_dataloader(cfg, mode, rank,dataset):
             num_workers=cfg.dataloader.test_num_workers,
             pin_memory=True,
             drop_last=False,
-        )
+        ),sampler
     else:
         raise ValueError(f"invalid dataloader mode {mode}")
 
-
+    
 

@@ -219,7 +219,7 @@ def get_precision_recall_f1(all_pred, all_gold):
 
     return {
         'precision': p, 'recall': r, 
-        'f1': 2.0 * p * r / (p + r), 
+        'f1': 2.0 * p * r / (p + r+1e-6), 
         'true_pos': true_pos, 
         'false_pos': false_pos, 
         'false_neg': false_neg, 

@@ -19,7 +19,7 @@ from tqdm import tqdm
 
 
 def setcfg(cfg):
-    cfg.mode='eval_test' #'key' assert mode in ['eval_dev','eval_test']
+    cfg.mode='eval_dev' #'key' assert mode in ['eval_dev','eval_test']
 
     save_dir='/share/data/mei-work/kangrui/github/ssref/result/pretrained_pair_sbert'
     cfg.src_dir = osp.join(save_dir,"test_result")
@@ -62,7 +62,7 @@ def calculate_recall(query_id2embed,key_id2embed,id2paper,device,retrieve_count=
         gold_dict[paperid]=gold
 
     print(f"compute eval metric ...")
-    i=100
+    i=2
     while i<retrieve_count:
         all_pred_topN=[]
         for paperlist in all_pred:

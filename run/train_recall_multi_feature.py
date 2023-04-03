@@ -11,13 +11,13 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 
-
+from utils.ddp_utils import *
 from utils.utils import *
 from configs.config_train_recall_multi_feature import Config
-from models.model_arch_train_recall_multi_feature import pair_sbert as mymodel
+from models.model_arch_train_recall_multi_feature import pair_sbert as Mymodel
 from models.ddp_model import Model
 from modules.dataloader import create_dataloader
-from modules.dataset_multi_feature_train_recall import ArxivDataset
+from modules.dataset_multi_feature_train_recall import ArxivDataset_raw as Mydataset
 from modules.loss import SSloss_multifeature
 from transformers import get_scheduler
 from torch.optim import AdamW
@@ -123,37 +123,15 @@ def train_model(cfg, model, train_loader,test_loader=None):
 
         #     else:
         #         dist.barrier()
-        if model.step % cfg.log_interval_test == 0:# or model.step==1:
-            test_model(cfg,model,test_loader)
+        if model.step % cfg.log_interval_test == 0 or model.step==1:
+            test_rst=test_model(cfg,model,test_loader)
+            if is_logging_process():
+                if model.best_test_rst is None or test_rst<model.best_test_rst:
+                    model.save_network(name='best')
+                    model.save_training_state(name='best')
+                    model.best_test_rst=test_rst
 
 
-
-
-def setup(cfg, rank):
-    os.environ["MASTER_ADDR"] = cfg.dist.master_addr
-    os.environ["MASTER_PORT"] = cfg.dist.master_port
-    timeout_sec = 10
-    if cfg.dist.timeout is not None:
-        os.environ["NCCL_BLOCKING_WAIT"] = "1"
-        timeout_sec = cfg.dist.timeout
-    timeout = datetime.timedelta(seconds=timeout_sec)
-
-    # initialize the process group
-    dist.init_process_group(
-        backend=cfg.dist.backend,
-        init_method=cfg.dist.init_method, 
-        rank=rank,
-        world_size=cfg.dist.world_size,
-        timeout=timeout,
-    )
-
-
-def cleanup():
-    dist.destroy_process_group()
-
-
-def distributed_run(fn, cfg):
-    mp.spawn(fn, args=(cfg,), nprocs=cfg.dist.gpus, join=True)
 
 
 def train_loop(rank, cfg):
@@ -180,8 +158,8 @@ def train_loop(rank, cfg):
     if is_logging_process():
         cfg.logger.info("Making train dataloader...")
        
-    train_dataset=ArxivDataset(cfg,"train")
-    test_dataset=ArxivDataset(cfg,"dev")
+    train_dataset=Mydataset(cfg,"train")
+    test_dataset=Mydataset(cfg,"dev")
 
     train_loader = create_dataloader(cfg, "train", rank,train_dataset)
     if is_logging_process():
@@ -193,7 +171,7 @@ def train_loop(rank, cfg):
 
     
    
-    net_arch = mymodel(cfg)
+    net_arch = Mymodel(cfg)
     loss_f = SSloss_multifeature(cfg)
     optimizer=AdamW
     scheduler=get_scheduler
@@ -258,6 +236,10 @@ def main():
         cfg.dist.world_size=1
         train_loop(0, cfg)
     else:
+        port= 8888 
+        while is_port_in_use(port):
+            port += 1
+        cfg.dist.master_port=str(port)
         cfg.dist.gpus=torch.cuda.device_count()
         cfg.dist.world_size=cfg.dist.gpus
         print(cfg.dist.gpus)

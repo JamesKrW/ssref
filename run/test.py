@@ -8,10 +8,8 @@ import traceback
 
 
 import torch
-import torch.distributed as dist
-import torch.multiprocessing as mp
-
-
+import torch.nn.functional as F
+from utils.ddp_utils import *
 from utils.utils import *
 from configs.config import Config
 from models.model_arch import SentenceEncoder,BertSiameseClassifier
@@ -20,34 +18,148 @@ from modules.dataloader import create_dataloader
 from modules.dataset import TestDataset
 import itertools
 from tqdm import tqdm
+from transformers import AutoTokenizer,AutoModel
+from torch import nn
+from torch.utils.data import Dataset
+def setcfg(cfg):
+    cfg.mode='eval_dev' #'key' assert mode in ['eval_key','eval_dev','eval_test','eval_train']
+
+    save_dir='/share/data/mei-work/kangrui/github/ssref/result/sentence-transformers_all-MiniLM-L6-v2/2023-04-03T04-11-59'
+    cfg.model.network_pth_path=osp.join(save_dir,'checkpoints/best.pt')
+    cfg.usefinetuned=True
+    cfg.num_workers=2
 
 
+    # no need to change
+    cfg.work_dir = osp.join(save_dir,"test_result")
+    cfg.mode_dir = osp.join(cfg.work_dir,f"{cfg.mode}")
+    cfg.dataset.test=Config()
 
-def setup(cfg, rank):
-    os.environ["MASTER_ADDR"] = cfg.dist.master_addr
-    os.environ["MASTER_PORT"] = cfg.dist.master_port
-    timeout_sec = 10
-    if cfg.dist.timeout is not None:
-        os.environ["NCCL_BLOCKING_WAIT"] = "1"
-        timeout_sec = cfg.dist.timeout
-    timeout = datetime.timedelta(seconds=timeout_sec)
+    cfg.dataset.test.datafolder="/share/data/mei-work/kangrui/github/ssref/data/refsum-data/arxiv-aiml-small"
+    # which contains dev.pkl,test.pkl
+    cfg.dataset.test.full_data_path="/share/data/mei-work/kangrui/github/ssref/data/refsum-data/arxiv-aiml/full_data_abs_title_author_data.pkl"
+    #"/share/data/mei-work/kangrui/github/ref-sum/refsum/data/refsum-data/arxiv-aiml/full_data_txt.pkl"
 
-    # initialize the process group
-    dist.init_process_group(
-        backend=cfg.dist.backend,
-        init_method=cfg.dist.init_method, 
-        rank=rank,
-        world_size=cfg.dist.world_size,
-        timeout=timeout,
-    )
+class MyDataset(Dataset):
 
+    def __init__(self, cfg,mode):
+        print(mode)
+        # get data
+        assert mode in ['eval_key','eval_test','eval_dev','eval_train']
+        
+        if mode=='eval_key':
+            self.id2txt=loadpickle(cfg.dataset.test.full_data_path)
+            self.id=list(self.id2txt.keys())
+        elif mode in ['eval_test','eval_dev','eval_train']:
+            mode=mode.split('_')[1]
+            self.id2txt=loadpickle(osp.join(cfg.dataset.test.datafolder,f"{mode}_filtered_abs_title_author_data.pkl"))
+            self.id=loadpickle(osp.join(cfg.dataset.test.datafolder,f"{mode}_filtered.pkl"))
+        
+        # init tokenizer
+        tokenizer = AutoTokenizer.from_pretrained(cfg.tokenizer.name)
+        self.tokenizer = tokenizer
+        
+        self.max_length =cfg.tokenizer.max_length
+        # self.empt=0
 
-def cleanup():
-    dist.destroy_process_group()
+    def txt_generate(self,data):
+        para=""
+        # para+=data['paperID']+'[SEP]'
+        para+=data['title']+'[SEP]'
+        authortxt=' and '.join([item['name'] for item in data['authors']])
+        para+=authortxt+'[SEP]'
+        para+=data['abstract']
+        return para
+    
+    def __len__(self):
+        return len(self.id)
 
+    def __getitem__(self, index):
+        # print(self.cite_pair[index])
+      
+        key_id=self.id[index]
+        key_text = self.txt_generate(self.id2txt[key_id])
+        
+        _inputs = self.tokenizer.encode_plus(
+            key_text,
+            None,
+            add_special_tokens=True,
+            max_length=self.max_length,
+            padding='max_length',
+            return_token_type_ids=True,
+            truncation=True,
+        )
+        key_ids = _inputs['input_ids']
+        key_mask = _inputs['attention_mask']
+        key_token_type_ids = _inputs["token_type_ids"]
 
-def distributed_run(fn, cfg):
-    mp.spawn(fn, args=(cfg,), nprocs=cfg.dist.gpus, join=True)
+        key={
+            'ids': torch.tensor(key_ids, dtype=torch.long),
+            'mask': torch.tensor(key_mask, dtype=torch.long),
+            'token_type_ids': torch.tensor(key_token_type_ids, dtype=torch.long),
+        }
+
+        return key,key_id
+    
+class SentenceEncoder(nn.Module):
+    #self supervised learning sbert
+    def __init__(self, model_arch_name,checkpoint_enable):
+        super().__init__()
+        self.pretrained_model = AutoModel.from_pretrained(model_arch_name)
+        if checkpoint_enable: 
+            self.pretrained_model.gradient_checkpointing_enable()
+        
+    def mean_pooling(self,model_output, attention_mask):
+            token_embeddings = model_output[0] #First element of model_output contains all token embeddings
+            input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+            return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+    
+    def forward(self, input_ids,attention_mask,token_type_ids=None,mode='query'):
+        model_output = self.pretrained_model(input_ids=input_ids, attention_mask=attention_mask,token_type_ids=token_type_ids)
+        sentence_embeddings = self.mean_pooling(model_output, attention_mask)
+        if mode=='query':
+            sentence_embeddings = F.normalize(sentence_embeddings, p=2, dim=1)
+        return sentence_embeddings
+    
+
+class Mymodel(nn.Module):
+    #self supervised learning sbert
+    def __init__(self, cfg):
+        super().__init__()
+        self.key_encoder = SentenceEncoder(cfg.model_arch.name,checkpoint_enable=False)
+        self.query_encoder = SentenceEncoder(cfg.model_arch.name,checkpoint_enable=False)
+        for param in self.query_encoder.parameters():
+                param.requires_grad = False
+       
+       
+
+    def forward(self, input,mode=None):
+
+        
+        if mode!=None:
+            s=input['ids']
+            ms=input['mask']
+            tks=input['token_type_ids']
+            if mode=='query':
+                 return self.query_encoder(s,ms,tks,'query')
+            else:
+                 return self.key_encoder(s,ms,tks,'key')
+        else:
+            ss=input['query']['ids']
+            sms=input['query']['mask']
+            stks=input['query']['token_type_ids']
+            
+            
+
+            ts=input['key']['ids']
+            tms=input['key']['mask']
+            ttks=input['key']['token_type_ids']
+
+            query=self.query_encoder(ss,sms,stks,'query')
+            key=self.key_encoder(ts,tms,ttks,'key')
+        
+
+            return  {'key':key,'query':query}
 
 
 def test_loop(rank, cfg):
@@ -58,24 +170,20 @@ def test_loop(rank, cfg):
         setup(cfg, rank)
         torch.cuda.set_device(cfg.device)
     if is_logging_process():
-        cfg.logger=loadLogger(cfg.work_dir)
+        cfg.logger=loadLogger(cfg.work_dir,cfg.mode)
     # setup writer
    
     # make dataloader
     if is_logging_process():
         cfg.logger.info("Making dataloader...")
         # cfg.writer.add_scalar("Making train dataloader...")
-    dataset = TestDataset(cfg, cfg.mode)
-    data_loader = create_dataloader(cfg, cfg.mode, rank,dataset)
+    dataset = MyDataset(cfg, cfg.mode)
+    data_loader,_ = create_dataloader(cfg, cfg.mode, rank,dataset)
 
 
-    # init Model
-   
-    #net_arch = DoubleBERT(cfg)
-    #net_arch = SentenceEncoder(cfg)
-    net_arch =BertSiameseClassifier(cfg)
-    #net_arch=BertSiameseClassifier(cfg)
-    model = Model(cfg, net_arch,None,None,None,rank)
+
+    net_arch =Mymodel(cfg)
+    model = Model(cfg=cfg, net_arch=net_arch,rank=rank)
     if cfg.usefinetuned:
         if is_logging_process():
             cfg.logger.info("load model.")
@@ -122,26 +230,7 @@ def test_loop(rank, cfg):
         if cfg.dist.gpus != 0:
             cleanup()
 
-def setcfg(cfg):
-    cfg.mode='eval_dev' #'key' assert mode in ['eval_key','eval_dev','eval_test','eval_train']
 
-    save_dir='/share/data/mei-work/kangrui/github/ssref/result/pretrained_sbert'
-    cfg.model.network_pth_path=osp.join(save_dir,'checkpoints/best.pt')
-    cfg.usefinetuned=False
-    cfg.dataloader.test_batch_size=1024
-    cfg.num_workers=256
-
-
-    # no need to change
-    cfg.work_dir = osp.join(save_dir,"test_result")
-    cfg.mode_dir = osp.join(cfg.work_dir,f"{cfg.mode}")
-    cfg.dataset.test=Config()
-
-    cfg.dataset.test.datafolder="/share/data/mei-work/kangrui/github/ref-sum/refsum/data/refsum-data/arxiv-aiml-small"
-    # which contains dev.pkl,test.pkl
-
-    cfg.dataset.test.full_data_path="/share/data/mei-work/kangrui/github/ref-sum/refsum/data/refsum-data/arxiv-aiml/full_data_txt.pkl"
-    #"/share/data/mei-work/kangrui/github/ref-sum/refsum/data/refsum-data/arxiv-aiml/full_data_txt.pkl"
 
 
 

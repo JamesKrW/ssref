@@ -58,8 +58,8 @@ class Config:
         self.dataloader=Config()
         self.dataloader.train_batch_size=args.train_batch_size
         self.dataloader.test_batch_size=args.test_batch_size
-        self.dataloader.train_num_workers=8
-        self.dataloader.test_num_workers=8
+        self.dataloader.train_num_workers=2
+        self.dataloader.test_num_workers=2
         self.dataloader.divide_dataset_per_gpu=True
         self.dataloader.use_background_generator = True
 
@@ -82,7 +82,7 @@ class Config:
         self.model=Config()
         self.model.resume_state_path=None  # "/home/cc/github/ref-sum/work/2023-02-28T05-04-37/checkpoints/model_2.state"
         self.model.network_pth_path=None   # "/home/cc/github/ref-sum/work/2023-02-28T05-04-37/checkpoints/model_2.pth"
-        self.model.strict_load=False
+        self.model.strict_load=True
 
 
         self.model_arch=Config()

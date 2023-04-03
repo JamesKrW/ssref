@@ -136,3 +136,42 @@ class pair_sbert(nn.Module):
         
 
             return  {'key':key,'query':query}
+        
+class pair_sbert_freeze_query(nn.Module):
+    #self supervised learning sbert
+    def __init__(self, cfg):
+        super().__init__()
+        self.key_encoder = SentenceEncoder(cfg.model_arch.name,checkpoint_enable=False)
+        self.query_encoder = SentenceEncoder(cfg.model_arch.name,checkpoint_enable=False)
+        for param in self.query_encoder.parameters():
+                param.requires_grad = False
+       
+       
+
+    def forward(self, input,mode=None):
+
+        
+        if mode!=None:
+            s=input['ids']
+            ms=input['mask']
+            tks=input['token_type_ids']
+            if mode=='query':
+                 return self.query_encoder(s,ms,tks)
+            else:
+                 return self.key_encoder(s,ms,tks)
+        else:
+            ss=input['query']['ids']
+            sms=input['query']['mask']
+            stks=input['query']['token_type_ids']
+            
+            
+
+            ts=input['key']['ids']
+            tms=input['key']['mask']
+            ttks=input['key']['token_type_ids']
+
+            query=self.query_encoder(ss,sms,stks)
+            key=self.key_encoder(ts,tms,ttks)
+        
+
+            return  {'key':key,'query':query}
