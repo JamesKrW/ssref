@@ -54,12 +54,11 @@ class Mydataset(Dataset):
         return len(self.cite_pair)
 
     def txt_generate(self,data):
-        sep_token=self.tokenizer.sep_token
         para=""
-        # para+=data['paperID']+'\n'
-        para+=data['title']+sep_token
+        para+=data['paperID']+'[SEP]'
+        para+=data['title']+'[SEP]'
         authortxt=' and '.join([item['name'] for item in data['authors']])
-        para+=authortxt+sep_token
+        para+=authortxt+'[SEP]'
         para+=data['abstract']
         return para
 
@@ -157,8 +156,7 @@ class SentenceEncoder(nn.Module):
     def forward(self, input_ids,attention_mask,token_type_ids=None,mode='query'):
         model_output = self.pretrained_model(input_ids=input_ids, attention_mask=attention_mask,token_type_ids=token_type_ids)
         sentence_embeddings = self.mean_pooling(model_output, attention_mask)
-        if mode=='query':
-            sentence_embeddings = F.normalize(sentence_embeddings, p=2, dim=1)
+        sentence_embeddings = F.normalize(sentence_embeddings, p=2, dim=1)
         return sentence_embeddings
     
 
@@ -168,8 +166,8 @@ class Mymodel(nn.Module):
         super().__init__()
         self.key_encoder = SentenceEncoder(cfg.model_arch.name,checkpoint_enable=False)
         self.query_encoder = SentenceEncoder(cfg.model_arch.name,checkpoint_enable=False)
-        for param in self.query_encoder.parameters():
-                param.requires_grad = False
+        # for param in self.query_encoder.parameters():
+        #         param.requires_grad = False
        
        
 

@@ -16,7 +16,7 @@ from tqdm import tqdm
 from transformers import AutoTokenizer,AutoModel
 from torch import nn
 from torch.utils.data import Dataset
-from utils.test_utils import get_precision_recall_f1
+from utils.test_utils import get_precision_recall_f1,show_rerank_rst
 def setcfg(cfg,mode,save_dir_path):
     cfg.mode=mode #'key' assert mode in ['eval_key','eval_dev','eval_test','eval_train']
 
@@ -60,11 +60,12 @@ class MyDataset(Dataset):
         # self.empt=0
 
     def txt_generate(self,data):
+        sep_token=self.tokenizer.sep_token
         para=""
-        # para+=data['paperID']+'[SEP]'
-        para+=data['title']+'[SEP]'
+        # para+=data['paperID']+'\n'
+        para+=data['title']+sep_token
         authortxt=' and '.join([item['name'] for item in data['authors']])
-        para+=authortxt+'[SEP]'
+        para+=authortxt+sep_token
         para+=data['abstract']
         return para
     
@@ -116,6 +117,7 @@ class SentenceEncoder(nn.Module):
         sentence_embeddings = self.mean_pooling(model_output, attention_mask)
         if mode=='query':
             sentence_embeddings = F.normalize(sentence_embeddings, p=2, dim=1)
+        sentence_embeddings = F.normalize(sentence_embeddings, p=2, dim=1)
         return sentence_embeddings
     
 
@@ -367,23 +369,70 @@ def rerank_sum(candidate_set,query_id2embedding,key_id2embedding,candidate_ref_s
     print("empty embedding cnt->",empty_embed_cnt)
     print("min rerank num->",rerank_num)
     return rerank_candidate
+
+def rerank_mean(candidate_set,query_id2embedding,key_id2embedding,candidate_ref_set,rerank_num=None,device=None):
+    cnt=0
+    pbar = tqdm(range(0,len(candidate_set),1), postfix=f"calculating f1")
+    query=list(candidate_set.keys())
+    empty_embed=torch.tensor(np.zeros_like(next(iter(key_id2embedding.values()))))
+    empty_embed_cnt=0
+    if rerank_num is None:
+        for v in candidate_set.values():
+            if rerank_num is None or rerank_num>len(v):
+                rerank_num=len(v)
+                
+    rerank_candidate={}   
+    for i in pbar:
+        query_paper=query[i]
+        query_embedding=torch.tensor(query_id2embedding[query_paper]).unsqueeze(0)
+        
+        cited_dict={}
+        for candidate in candidate_set[query_paper]:
+            
+            if candidate in candidate_ref_set.keys():
+                # this is possibly the anchor paper
+                for ref in list(candidate_ref_set[candidate]):
+                    # deal with the ref of an anchor paper
+                    if ref in candidate_set[query_paper]:
+                        if ref not in cited_dict.keys():
+                            cited_dict[ref]=[candidate]
+                        else:
+                            cited_dict[ref].append(candidate)
+                    else:
+                        # this is not anchor paper for this query
+                        break
+            if candidate not in cited_dict.keys():
+                cited_dict[candidate]=[candidate]
+            else:
+                cited_dict[candidate].append(candidate)
+                
+                
+        key_embedding=[]
+        for candidate in candidate_set[query_paper]:
+            candidate_embedding=[]
+            for paper in cited_dict[candidate]:
+                if paper in key_id2embedding:
+                    candidate_embedding.append(torch.tensor(key_id2embedding[paper]))
+            if len(candidate_embedding)==0:
+                candidate_embedding.append(empty_embed)
+                empty_embed_cnt+=1
+            candidate_embedding=torch.mean(torch.stack(candidate_embedding),dim=0)
+            
+            key_embedding.append(candidate_embedding)
+        
+        
+        key_embedding=torch.stack(key_embedding)
+        query_embedding=query_embedding.to(device)
+        key_embedding=key_embedding.to(device)
+        pred_logits=torch.mm(query_embedding,key_embedding.T)
+        top_k=torch.topk(pred_logits[0],k=rerank_num)[1]
+#         print(pred_logits[0][top_k[-5:]])
+        rerank=[candidate_set[query_paper][idx.cpu().item()] for idx in top_k]
+        rerank_candidate[query_paper]=rerank
+    print("empty embedding cnt->",empty_embed_cnt)
+    print("min rerank num->",rerank_num)
+    return rerank_candidate
   
-def show_rerank_rst(rerank_candidate,gold_set):
-    pool_length=len(next(iter(rerank_candidate.values())))
-    i=2
-    while 1:
-        all_pred_topN=[]
-        all_gold=[]
-        for query_paper,paperlist in rerank_candidate.items():
-            topN=paperlist[:i]
-            all_pred_topN.append(topN)
-            all_gold.append(gold_set[query_paper])
-        all_pred_topN=np.array(all_pred_topN)
-        metric = get_precision_recall_f1(all_pred_topN, all_gold)
-        print(f"top{i}:\n{metric}")
-        if i>pool_length:
-            break
-        i*=2
 
 
 def main(save_dir):
@@ -435,7 +484,9 @@ def main(save_dir):
     show_rerank_rst(rerank_candidate,gold_set)
     rerank_candidate=rerank_sum(candidate_set,query_id2embedding,key_id2embedding,candidate_ref_set,device=device)
     show_rerank_rst(rerank_candidate,gold_set)
+    rerank_candidate=rerank_mean(candidate_set,query_id2embedding,key_id2embedding,candidate_ref_set,device=device)
+    show_rerank_rst(rerank_candidate,gold_set)
 
 if __name__ == "__main__":
-   save_dir='/share/data/mei-work/kangrui/github/ssref/result/sentence-transformers_all-MiniLM-L6-v2/2023-04-03T07-59-29'
+   save_dir='/share/data/mei-work/kangrui/github/ssref/result/sentence-transformers_all-mpnet-base-v2/2023-04-05T01-25-13'
    main(save_dir)

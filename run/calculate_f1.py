@@ -20,7 +20,7 @@ from tqdm import tqdm
 
 def setcfg(cfg):
     cfg.mode='eval_test' #'key' assert mode in ['eval_dev','eval_test','eval_train']
-    save_dir="/share/data/mei-work/kangrui/github/ssref/result/sentence-transformers_all-MiniLM-L6-v2/2023-04-03T04-11-59"
+    save_dir="/share/data/mei-work/kangrui/github/ssref/result/sentence-transformers_all-MiniLM-L6-v2/2023-04-03T20-06-52"
     cfg.retrieve_count=1000
     
     # basically no need to change

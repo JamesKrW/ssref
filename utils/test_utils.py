@@ -17,6 +17,23 @@ import argparse
 import numpy as np
 all_splits = ['train', 'dev', 'test', 'extra']
 
+def show_rerank_rst(rerank_candidate,gold_set):
+    pool_length=len(next(iter(rerank_candidate.values())))
+    i=2
+    while 1:
+        all_pred_topN=[]
+        all_gold=[]
+        for query_paper,paperlist in rerank_candidate.items():
+            topN=paperlist[:i]
+            all_pred_topN.append(topN)
+            all_gold.append(gold_set[query_paper])
+        all_pred_topN=np.array(all_pred_topN)
+        metric = get_precision_recall_f1(all_pred_topN, all_gold)
+        print(f"top{i}:\n{metric}")
+        if i>pool_length:
+            break
+        i*=2
+        
 def build_keys_bert(rank2id, id2embed): 
     print("length of id2embed",len(id2embed))
     print("length of rank2id",len(rank2id))

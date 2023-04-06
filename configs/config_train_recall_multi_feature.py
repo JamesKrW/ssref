@@ -36,6 +36,12 @@ class Config:
                             help='use multi gpu to train')
         parser.add_argument('--log_interval_test', type=int, default=1000, metavar='N',
                             help='test interval vs step')
+        parser.add_argument('--log_interval_train', type=int, default=500, metavar='N',
+                            help='train interval vs step')
+        parser.add_argument('--pt_path', type=str, 
+                            help='model pt path for eval')
+        parser.add_argument('--state_path', type=str, 
+                            help='training state path for resume ')
         args = parser.parse_args()
 
         self.num_epoch=args.num_epoch
@@ -48,7 +54,7 @@ class Config:
         self.chkpt_dir=osp.join(self.work_dir,"checkpoints")
         self.chkpt_interval=3 #epoch
         # training step
-        self.log_interval_train=500
+        self.log_interval_train=args.log_interval_train
         self.log_interval_test=args.log_interval_test
         self.log_interval_recall=500
 
@@ -60,8 +66,8 @@ class Config:
         self.dataloader=Config()
         self.dataloader.train_batch_size=args.train_batch_size
         self.dataloader.test_batch_size=args.test_batch_size
-        self.dataloader.train_num_workers=1
-        self.dataloader.test_num_workers=1
+        self.dataloader.train_num_workers=2
+        self.dataloader.test_num_workers=2
         self.dataloader.divide_dataset_per_gpu=True
         self.dataloader.use_background_generator = True
 
@@ -82,8 +88,8 @@ class Config:
         self.tokenizer.max_length=512
 
         self.model=Config()
-        self.model.resume_state_path=None
-        self.model.network_pth_path=None
+        self.model.resume_state_path=args.state_path
+        self.model.network_pth_path=args.pt_path
         self.model.strict_load=True
 
 

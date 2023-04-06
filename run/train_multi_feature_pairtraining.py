@@ -1,6 +1,5 @@
 import sys
 sys.path.append("/share/data/mei-work/kangrui/github/ssref")
-import datetime
 import itertools
 import os
 os.environ['TORCH_DISTRIBUTED_DEBUG'] = 'DETAIL'
@@ -10,6 +9,7 @@ import traceback
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
+from transformers import AutoModelForSequenceClassification, AutoTokenizer,AutoModel
 
 
 from utils.utils import *
@@ -23,15 +23,13 @@ import itertools
 from tqdm import tqdm
 from torch.distributed import ReduceOp
 import math
-from transformers import AutoTokenizer, AutoModel
 from torch.utils.data import Dataset
 from torch import nn
-import numpy as np
-import torch.nn.functional as F
+
 
 class Mydataset(Dataset):
 
-    def __init__(self, cfg,mode):
+    def __init__(self, cfg,mode,id2txt):
 
         # get data
         assert mode in ['train','dev']
@@ -39,17 +37,14 @@ class Mydataset(Dataset):
             cfg.dataset.datafolder="/share/data/mei-work/kangrui/github/ssref/data/refsum-data/arxiv-aiml"
         else:
             cfg.dataset.datafolder="/share/data/mei-work/kangrui/github/ssref/data/refsum-data/arxiv-aiml-small"
-        self.cite_pair=loadpickle(osp.join(cfg.dataset.datafolder,f"{mode}_cite_pair.pkl"))
-        self.id2txt=loadpickle(osp.join(cfg.dataset.datafolder,f"{mode}_filtered_abs_title_author_data.pkl"))
+        self.cite_pair=loadpickle(osp.join(cfg.dataset.datafolder,f"{mode}_cite_pair_label.pkl"))
+        self.id2txt=id2txt
         random.shuffle(self.cite_pair)
-       
-        
+
         # init tokenizer
-        tokenizer = AutoTokenizer.from_pretrained(cfg.tokenizer.name)
-        self.tokenizer = tokenizer
+        self.tokenizer = AutoTokenizer.from_pretrained(cfg.tokenizer.name)
         
         self.max_length = cfg.tokenizer.max_length
-
     def __len__(self):
         return len(self.cite_pair)
 
@@ -62,151 +57,84 @@ class Mydataset(Dataset):
         para+=authortxt+sep_token
         para+=data['abstract']
         return para
+    
+    def truncate_sentence(self,sentence, max_length):
+        tokens = sentence.split()
+        truncated_tokens = tokens[:max_length]
+        truncated_sentence = " ".join(truncated_tokens)
+        return truncated_sentence
 
     def __getitem__(self, index):
-        # print(self.cite_pair[index])
-        query_id=self.cite_pair[index][0]
-        key_id=self.cite_pair[index][1]
-        key_text = self.txt_generate(self.id2txt[key_id])
-        query_text=self.txt_generate(self.id2txt[query_id])
-        # query_text=key_text
-        key_inputs = self.tokenizer.encode_plus(
-            key_text,
-            None,
-            add_special_tokens=True,
-            max_length=self.max_length,
-            padding='max_length',
-            return_token_type_ids=True,
-            truncation=True,
-        )
-        key_ids = key_inputs['input_ids']
-        key_mask = key_inputs['attention_mask']
-        key_token_type_ids = key_inputs["token_type_ids"]
+        data=self.cite_pair[index]
+        query_text=self.txt_generate(self.id2txt[data['query']])
+        key_text=self.txt_generate(self.id2txt[data['key']])
+        label=data['label']
 
-        key={
-            'ids': torch.tensor(key_ids, dtype=torch.long),
-            'mask': torch.tensor(key_mask, dtype=torch.long),
-            'token_type_ids': torch.tensor(key_token_type_ids, dtype=torch.long),
-            'text': key_text
-        }
+        query_length=int(self.max_length*0.5)
 
-        query_inputs = self.tokenizer.encode_plus(
+        query_text=self.truncate_sentence(query_text, query_length)
+
+        inputs=self.tokenizer.encode_plus(
             query_text,
-            None,
+            key_text,
             add_special_tokens=True,
             max_length=self.max_length,
             padding='max_length',
             return_token_type_ids=True,
             truncation=True,
         )
-        query_ids = query_inputs['input_ids']
-        query_mask = query_inputs['attention_mask']
-        query_token_type_ids = query_inputs["token_type_ids"]
 
-        query={
-            'ids': torch.tensor(query_ids, dtype=torch.long),
-            'mask': torch.tensor(query_mask, dtype=torch.long),
-            'token_type_ids': torch.tensor(query_token_type_ids, dtype=torch.long),
-            'text': query_text
-        }
+        ids = inputs['input_ids']
+        mask = inputs['attention_mask']
+        token_type_ids = inputs["token_type_ids"]
+
         data={
-            'key':key,
-            'query':query
+            'input_ids': torch.tensor(ids, dtype=torch.long),
+            'attention_mask': torch.tensor(mask, dtype=torch.long),
+            'token_type_ids': torch.tensor(token_type_ids, dtype=torch.long),
+            'labels':torch.tensor(label, dtype=torch.float)
         }
-        target=1.
-        return data,torch.tensor(target, dtype=torch.float32)
+
+        return data,torch.tensor(label, dtype=torch.long)
 
 class Myloss(nn.Module):
 
     def __init__(self,cfg):
         super().__init__()
-        self.device=cfg.device
-        self.tau=torch.tensor([[cfg.loss.tau]],requires_grad=False).to(self.device)
-        self.entropy=nn.CrossEntropyLoss()
 
     def forward(self, output,target,mode=None):
-        query=output['query']
-        key=output['key']
-        query=query/torch.sqrt(self.tau)
-        key=key/torch.sqrt(self.tau)
-        n=query.shape[0]
-    
-        pred_logits = torch.mm(query, key.transpose(0, 1))
-        ys = torch.tensor(list(range(n))).to(self.device)
-        loss2=self.entropy(pred_logits,ys)
+        # print(output)
+        loss=output.loss
         if mode is not None:
             if mode == 'test':
-                positive_score=torch.mean(torch.diag(pred_logits))
-                negative_score=(torch.sum(pred_logits)-positive_score*n)/(n*n-n)
-            return loss2,positive_score,negative_score
-        return loss2
+                logits=output.logits.flatten()
+                pos_score=torch.sum(logits[torch.nonzero(target == 1).squeeze()])
+                neg_score=torch.sum(logits[torch.nonzero(target == 0).squeeze()])
+                pos_cnt=torch.sum((target == 1))
+                neg_cnt=torch.sum((target == 0))
+            return loss,pos_score,pos_cnt,neg_score,neg_cnt
+        return loss
 
-class SentenceEncoder(nn.Module):
-    #self supervised learning sbert
-    def __init__(self, model_arch_name,checkpoint_enable):
-        super().__init__()
-        self.pretrained_model = AutoModel.from_pretrained(model_arch_name)
-        if checkpoint_enable: 
-            self.pretrained_model.gradient_checkpointing_enable()
-        
-    def mean_pooling(self,model_output, attention_mask):
-            token_embeddings = model_output[0] #First element of model_output contains all token embeddings
-            input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
-            return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
-    
-    def forward(self, input_ids,attention_mask,token_type_ids=None,mode='query'):
-        model_output = self.pretrained_model(input_ids=input_ids, attention_mask=attention_mask,token_type_ids=token_type_ids)
-        sentence_embeddings = self.mean_pooling(model_output, attention_mask)
-        if mode=='query':
-            sentence_embeddings = F.normalize(sentence_embeddings, p=2, dim=1)
-        return sentence_embeddings
-    
 
 class Mymodel(nn.Module):
     #self supervised learning sbert
     def __init__(self, cfg):
         super().__init__()
-        self.key_encoder = SentenceEncoder(cfg.model_arch.name,checkpoint_enable=False)
-        self.query_encoder = SentenceEncoder(cfg.model_arch.name,checkpoint_enable=False)
-        for param in self.query_encoder.parameters():
-                param.requires_grad = False
+        self.cross_encoder =  AutoModelForSequenceClassification.from_pretrained(cfg.model_arch.name)
+        self.cross_encoder.gradient_checkpointing_enable()
        
-       
-
     def forward(self, input,mode=None):
-
-        
-        if mode!=None:
-            s=input['ids']
-            ms=input['mask']
-            tks=input['token_type_ids']
-            if mode=='query':
-                 return self.query_encoder(s,ms,tks,'query')
-            else:
-                 return self.key_encoder(s,ms,tks,'key')
-        else:
-            ss=input['query']['ids']
-            sms=input['query']['mask']
-            stks=input['query']['token_type_ids']
-            
-            
-
-            ts=input['key']['ids']
-            tms=input['key']['mask']
-            ttks=input['key']['token_type_ids']
-
-            query=self.query_encoder(ss,sms,stks,'query')
-            key=self.key_encoder(ts,tms,ttks,'key')
-        
-
-            return  {'key':key,'query':query}
+        output=self.cross_encoder(**input)
+        return output
 
 def test_model(cfg,model,test_loader):
     model.net.eval()
     test_loss = 0
     test_loop_len = 0
-    test_pos=0
-    test_neg=0
+    test_pos_score=0
+    test_neg_score=0
+    test_pos_cnt=0
+    test_neg_cnt=0
     with torch.no_grad():
         if is_logging_process():
             pbar = tqdm(test_loader, postfix=f"testing...")
@@ -215,23 +143,24 @@ def test_model(cfg,model,test_loader):
         for model_input, model_target in pbar:
             output = model.inference(model_input)
             # print("model_target->",model_target)
-            loss_v,positive_score,negative_score = model.loss_f(output, model_target.to(cfg.device),mode='test')
+            loss_v,positive_score,pos_cnt,negative_score,neg_cnt = model.loss_f(output, model_target.to(cfg.device),mode='test')
             if cfg.dist.gpus > 0:
                 # Aggregate loss_v from all GPUs. loss_v is set as the sum of all GPUs' loss_v.
                 dist.all_reduce(loss_v)
                 dist.all_reduce(positive_score)
                 dist.all_reduce(negative_score)
+                dist.all_reduce(pos_cnt)
+                dist.all_reduce(neg_cnt)
                 loss_v /= torch.tensor(float(cfg.dist.gpus))
-                positive_score/=torch.tensor(float(cfg.dist.gpus))
-                negative_score/=torch.tensor(float(cfg.dist.gpus))
-            test_pos+=positive_score.to("cpu").item()
-            test_neg+=negative_score.to("cpu").item()
+            test_pos_score+=positive_score.to("cpu").item()
+            test_neg_score+=negative_score.to("cpu").item()
+            test_pos_cnt+=pos_cnt.to("cpu").item()
+            test_neg_cnt+=neg_cnt.to("cpu").item()
             test_loss += loss_v.to("cpu").item()
             test_loop_len += 1
-
-        test_loss /= test_loop_len
-        test_pos/=test_loop_len
-        test_neg/=test_loop_len
+        test_loss/=test_loop_len
+        test_pos_score /= (test_pos_cnt+1e-6)
+        test_neg_score /= (test_neg_cnt+1e-6)
         if is_logging_process():
             cfg.logger.info(
                 "Test Loss %.08f at (epoch: %d / step: %d)"
@@ -239,11 +168,11 @@ def test_model(cfg,model,test_loader):
             )
             cfg.logger.info(
                 "Test pos_score %.08f at (epoch: %d / step: %d)"
-                % (test_pos, model.epoch + 1, model.step)
+                % (test_pos_score, model.epoch + 1, model.step)
             )
             cfg.logger.info(
                 "Test neg_score %.08f at (epoch: %d / step: %d)"
-                % (test_neg, model.epoch + 1, model.step)
+                % (test_neg_score, model.epoch + 1, model.step)
             )
     return test_loss
 
@@ -311,8 +240,9 @@ def train_loop(rank, cfg):
     if is_logging_process():
         cfg.logger.info("Making train dataloader...")
        
-    train_dataset=Mydataset(cfg,"train")
-    test_dataset=Mydataset(cfg,"dev")
+    id2txt=loadpickle("/share/data/mei-work/kangrui/github/ssref/data/refsum-data/arxiv-aiml/full_data_abs_title_author_data.pkl")
+    train_dataset=Mydataset(cfg,"train",id2txt)
+    test_dataset=Mydataset(cfg,"dev",id2txt)
 
     train_loader,train_sampler = create_dataloader(cfg, "train", rank,train_dataset)
     if is_logging_process():
@@ -328,7 +258,7 @@ def train_loop(rank, cfg):
     loss_f = Myloss(cfg)
     optimizer=AdamW
     scheduler=get_scheduler
-    model = Model(cfg=cfg, net_arch=net_arch,loss_f=loss_f,optimizer=optimizer,scheduler=scheduler,rank=rank)
+    model = Model(cfg=cfg, net_arch=net_arch,loss_f=loss_f,optimizer=optimizer,scheduler=scheduler,rank=rank,find_unused_parameters=False)
 
     
     if cfg.model.resume_state_path is not None:
