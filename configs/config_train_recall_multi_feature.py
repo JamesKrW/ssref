@@ -38,6 +38,8 @@ class Config:
                             help='test interval vs step')
         parser.add_argument('--log_interval_train', type=int, default=500, metavar='N',
                             help='train interval vs step')
+        parser.add_argument('--log_interval_save', type=int, default=500, metavar='N',
+                            help='train interval vs step')
         parser.add_argument('--pt_path', type=str, 
                             help='model pt path for eval')
         parser.add_argument('--state_path', type=str, 
@@ -56,7 +58,7 @@ class Config:
         # training step
         self.log_interval_train=args.log_interval_train
         self.log_interval_test=args.log_interval_test
-        self.log_interval_recall=500
+        self.log_interval_save=args.log_interval_save
 
 
         self.dataset=Config()

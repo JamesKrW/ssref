@@ -78,7 +78,7 @@ class Mydataset(Dataset):
         query_text=self.txt_generate(self.id2txt[data['query']])
         key_text=self.txt_generate(self.id2txt[data['key']])
 
-        query_length=int(self.max_length*0.6)
+        query_length=int(self.max_length*0.5)
         query_text=self.truncate_sentence(query_text, query_length)
 
         inputs=self.tokenizer.encode_plus(
@@ -338,5 +338,5 @@ def main(save_dir,mode):
     show_rerank_rst(rerank_candidate,gold_set)
 
 if __name__ == "__main__":
-   save_dir='/share/data/mei-work/kangrui/github/ssref/result/cross-encoder_ms-marco-TinyBERT-L-2/2023-04-04T23-50-34'
+   save_dir='/share/data/mei-work/kangrui/github/ssref/result/cross-encoder_stsb-roberta-base/2023-04-06T08-48-57'
    main(save_dir,mode='eval_test')

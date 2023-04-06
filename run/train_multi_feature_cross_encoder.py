@@ -95,24 +95,25 @@ class Mydataset(Dataset):
             'labels':torch.tensor(label, dtype=torch.float)
         }
 
-        return data,torch.tensor(label, dtype=torch.long)
+        return data,torch.tensor(label, dtype=torch.float)
 
 class Myloss(nn.Module):
 
     def __init__(self,cfg):
         super().__init__()
-
+        self.lossfn=torch.nn.BCEWithLogitsLoss()
     def forward(self, output,target,mode=None):
         # print(output)
-        loss=output.loss
+        logits=output.logits.squeeze(-1)
+        loss=self.lossfn(logits,target)
         if mode is not None:
             if mode == 'test':
-                logits=output.logits.flatten()
-                pos_score=torch.sum(logits[torch.nonzero(target == 1).squeeze()])
-                neg_score=torch.sum(logits[torch.nonzero(target == 0).squeeze()])
-                pos_cnt=torch.sum((target == 1))
-                neg_cnt=torch.sum((target == 0))
-            return loss,pos_score,pos_cnt,neg_score,neg_cnt
+                nt=target.long()
+                pos_score=torch.sum(torch.sigmoid(logits[torch.nonzero(nt == 1).squeeze()]))
+                neg_score=torch.sum(torch.sigmoid(logits[torch.nonzero(nt == 0).squeeze()]))
+                pos_cnt=torch.sum((nt == 1))
+                neg_cnt=torch.sum((nt == 0))
+                return loss,pos_score,pos_cnt,neg_score,neg_cnt
         return loss
 
 
@@ -208,6 +209,7 @@ def train_model(cfg, model, train_loader,test_loader=None):
             if is_logging_process():
                 cfg.logger.info("Train Loss %.08f at (epoch: %d / step: %d)"% (cur_loss, model.epoch + 1, model.step))
             train_loss=0
+
         if model.step % cfg.log_interval_test == 0 or model.step==1:
             test_rst=test_model(cfg,model,test_loader)
             if is_logging_process():
@@ -216,6 +218,12 @@ def train_model(cfg, model, train_loader,test_loader=None):
                     model.save_network(name='best')
                     model.save_training_state(name='best')
                     model.best_test_rst=test_rst
+
+        if model.step % cfg.log_interval_save == 0 or model.step==1:
+            if is_logging_process():
+                model.save_network(name='last')
+                model.save_training_state(name='last')
+                    
 
 
 
